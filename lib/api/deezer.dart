@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:logging/logging.dart';
 
 import '../api/definitions.dart';
+import '../api/player_token_patch.dart';
 import '../api/spotify.dart';
 import '../settings.dart';
 
@@ -69,6 +70,60 @@ class DeezerAPI {
         }
       }
     }
+    
+    // Patch player token to enable HiFi features (dzunlock equivalent)
+    if (method == 'deezer.getUserData' && body['results'] != null) {
+      _patchUserDataResponse(body);
+    }
+    if (method == 'log.listen' && body['results'] is String) {
+      body['results'] = PlayerTokenPatch.patchPlayerToken(body['results']);
+    }
+    
+    // Patch track data to enable quality selection
+    if (body['results'] != null) {
+      // Methods that return track lists
+      if (method == 'song.getListData' || 
+          method == 'song.getSearchTrackMix' ||
+          method == 'smart.getSmartRadio' ||
+          method == 'radio.getUserRadio' ||
+          method == 'tracklist.getShuffledCollection') {
+        _patchTrackList(body['results']['data']);
+      }
+      // Methods that return objects with track data
+      else if (method == 'deezer.pageAlbum' || 
+               method == 'deezer.pagePlaylist' ||
+               method == 'deezer.pageSmartTracklist') {
+        _patchTrackList(body['results']['SONGS']?['data']);
+      }
+      // Search results
+      else if (method == 'deezer.pageSearch') {
+        _patchTrackList(body['results']['TRACK']?['data']);
+      }
+      // Single track page (used for fallback)
+      else if (method == 'deezer.pageTrack') {
+        _patchTrackData(body['results']['DATA']);
+      }
+      // Homepage and channel pages
+      else if (method == 'page.get') {
+        // Patch track lists in sections
+        if (body['results']['sections'] is List) {
+          for (var section in body['results']['sections']) {
+            if (section['data'] is List) {
+              for (var item in section['data']) {
+                if (item['__TYPE__'] == 'song') {
+                  _patchTrackData(item);
+                }
+              }
+            }
+          }
+        }
+      }
+      // Show episodes
+      else if (method == 'deezer.pageShow') {
+        // Episodes are not tracks, skip patching
+      }
+    }
+    
     // In case of error "Invalid CSRF token" retrieve new one and retry the same call
     // Except for "deezer.getUserData" method, which would cause infinite loop
     if (body['error'].isNotEmpty &&
@@ -77,6 +132,58 @@ class DeezerAPI {
       return callGwApi(method, params: params, gatewayInput: gatewayInput);
     }
     return body;
+  }
+  
+  /// Patches getUserData response to enable HiFi features
+  void _patchUserDataResponse(Map<String, dynamic> body) {
+    try {
+      if (body['results']['PLAYER_TOKEN'] != null) {
+        body['results']['PLAYER_TOKEN'] = PlayerTokenPatch.patchPlayerToken(
+          body['results']['PLAYER_TOKEN']
+        );
+      }
+      
+      // Disable ads
+      if (body['results']['USER'] != null && body['results']['USER']['OPTIONS'] != null) {
+        body['results']['USER']['OPTIONS']['ads_display'] = false;
+        body['results']['USER']['OPTIONS']['ads_audio'] = false;
+      }
+      
+      // Set premium offer to enable premium-restricted content
+      body['results']['OFFER_ID'] = 600;
+      
+      // Remove upgrade popup entrypoints
+      if (body['results']['USER'] != null) {
+        body['results']['USER']['ENTRYPOINTS'] = {};
+      }
+    } catch (e) {
+      Logger.root.warning('Error patching getUserData response: $e');
+    }
+  }
+  
+  /// Patches track data to enable HiFi quality selection (dzunlock equivalent)
+  /// Sets FILESIZE_MP3_320 and FILESIZE_FLAC to '1' for non-user-uploaded tracks
+  void _patchTrackData(dynamic trackData) {
+    try {
+      if (trackData is Map) {
+        final id = int.tryParse(trackData['SNG_ID']?.toString() ?? '-1') ?? -1;
+        // Only patch non-user-uploaded tracks (id >= 0)
+        if (id >= 0) {
+          trackData['FILESIZE_MP3_320'] = '1';
+          trackData['FILESIZE_FLAC'] = '1';
+        }
+      }
+    } catch (e) {
+      // Silently ignore patching errors
+    }
+  }
+  
+  /// Patches a list of tracks
+  void _patchTrackList(List<dynamic>? tracks) {
+    if (tracks == null) return;
+    for (var track in tracks) {
+      _patchTrackData(track);
+    }
   }
 
   Future<Map<dynamic, dynamic>> callPublicApi(String path) async {
@@ -471,6 +578,12 @@ class DeezerAPI {
           'LANG': settings.deezerLanguage,
           'OPTIONS': []
         }));
+    
+    // Remove upgrade popups
+    if (data['results'] != null && data['results']['events'] != null) {
+      data['results']['events'] = {};
+    }
+    
     return HomePage.fromPrivateJson(data['results']);
   }
 

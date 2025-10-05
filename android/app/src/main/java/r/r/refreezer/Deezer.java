@@ -158,8 +158,99 @@ public class Deezer {
                 logger.warn("Error getting user License Token - FLAC not available! " + e);
             }
         }
+        
+        // Patch player token to enable HiFi features (dzunlock equivalent)
+        if (method.equals("deezer.getUserData") && out.has("results")) {
+            patchUserDataResponse(out);
+        }
+        if (method.equals("log.listen") && out.has("results") && out.get("results") instanceof String) {
+            String playerToken = out.getString("results");
+            out.put("results", PlayerTokenPatch.patchPlayerToken(playerToken));
+        }
+        
+        // Patch track data to enable quality selection
+        if (out.has("results")) {
+            JSONObject results = out.getJSONObject("results");
+            
+            // Methods that return track lists
+            if (method.equals("song.getListData") || 
+                method.equals("song.getSearchTrackMix") ||
+                method.equals("smart.getSmartRadio") ||
+                method.equals("radio.getUserRadio") ||
+                method.equals("tracklist.getShuffledCollection")) {
+                patchTrackList(results.optJSONArray("data"));
+            }
+            // Methods that return objects with track data
+            else if (method.equals("deezer.pageAlbum") || 
+                     method.equals("deezer.pagePlaylist") ||
+                     method.equals("deezer.pageSmartTracklist")) {
+                if (results.has("SONGS")) {
+                    patchTrackList(results.getJSONObject("SONGS").optJSONArray("data"));
+                }
+            }
+            // Search results
+            else if (method.equals("deezer.pageSearch")) {
+                if (results.has("TRACK")) {
+                    patchTrackList(results.getJSONObject("TRACK").optJSONArray("data"));
+                }
+            }
+            // Single track page (used for fallback)
+            else if (method.equals("deezer.pageTrack")) {
+                if (results.has("DATA")) {
+                    PlayerTokenPatch.patchTrackData(results.getJSONObject("DATA"));
+                }
+            }
+        }
 
         return out;
+    }
+    
+    /**
+     * Patches getUserData response to enable HiFi features
+     */
+    private void patchUserDataResponse(JSONObject out) {
+        try {
+            JSONObject results = out.getJSONObject("results");
+            
+            // Patch player token
+            if (results.has("PLAYER_TOKEN")) {
+                String playerToken = results.getString("PLAYER_TOKEN");
+                results.put("PLAYER_TOKEN", PlayerTokenPatch.patchPlayerToken(playerToken));
+            }
+            
+            // Disable ads
+            if (results.has("USER")) {
+                JSONObject user = results.getJSONObject("USER");
+                if (user.has("OPTIONS")) {
+                    JSONObject options = user.getJSONObject("OPTIONS");
+                    options.put("ads_display", false);
+                    options.put("ads_audio", false);
+                }
+                
+                // Remove upgrade popup entrypoints
+                user.put("ENTRYPOINTS", new JSONObject());
+            }
+            
+            // Set premium offer to enable premium-restricted content
+            results.put("OFFER_ID", 600);
+        } catch (Exception e) {
+            logger.warn("Error patching getUserData response: " + e);
+        }
+    }
+    
+    /**
+     * Patches a list of tracks
+     */
+    private void patchTrackList(JSONArray tracks) {
+        if (tracks == null) return;
+        try {
+            for (int i = 0; i < tracks.length(); i++) {
+                JSONObject track = tracks.getJSONObject(i);
+                PlayerTokenPatch.patchTrackData(track);
+            }
+        } catch (Exception e) {
+            // Silently ignore patching errors
+        }
     }
 
     //api.deezer.com/$method/$param
