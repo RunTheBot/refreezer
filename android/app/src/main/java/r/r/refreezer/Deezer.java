@@ -194,6 +194,12 @@ public class Deezer {
                     patchTrackList(results.getJSONObject("TRACK").optJSONArray("data"));
                 }
             }
+            // Single track page (used for fallback)
+            else if (method.equals("deezer.pageTrack")) {
+                if (results.has("DATA")) {
+                    PlayerTokenPatch.patchTrackData(results.getJSONObject("DATA"));
+                }
+            }
         }
 
         return out;

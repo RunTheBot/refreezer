@@ -99,6 +99,10 @@ class DeezerAPI {
       else if (method == 'deezer.pageSearch') {
         _patchTrackList(body['results']['TRACK']?['data']);
       }
+      // Single track page (used for fallback)
+      else if (method == 'deezer.pageTrack') {
+        _patchTrackData(body['results']['DATA']);
+      }
       // Homepage and channel pages
       else if (method == 'page.get') {
         // Patch track lists in sections
