@@ -52,6 +52,11 @@ The entire codebase has been updated/rewritten to be compatible with the latest 
 - Restored all features of the old Freezer app, most notably:
   - Restored all login options
   - Restored Highest quality streaming and download options (premium account required, free accounts limited to MP3 128kbps)
+- **NEW: Enhanced audio quality unlock** - Implements dzunlock-style player token patching to enable HiFi features:
+  - Automatically patches player tokens to enable high-quality audio selection (320kbps MP3, FLAC)
+  - Removes ads and preview limitations
+  - Disables skip limits on mixes and radio
+  - Works transparently without additional configuration
 - Support downloading to external storage (sdcard) for android 11 and up
 - Restored homescreen and added new Flow & Mood smart playlist options
 - Fixed Log-out (no need for restart anymore)
